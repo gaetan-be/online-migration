@@ -655,7 +655,8 @@ class OnlineMigration(object):
             self.create_schema_img(db_name, file_schema)
   
 
-def main():
+def main(argv):
+    #print argv
     
     global server_connection
     
@@ -700,7 +701,7 @@ def main():
         
     parser_version= cmdparsers.add_parser('version', help='Shows this program\'s version number')
     
-    args = parser.parse_args(sys.argv[1:])
+    args = parser.parse_args(argv)
     # print args
     with capture() as nowhere:
         
@@ -831,4 +832,6 @@ def main():
         else:
             last_version = migration.last_migration_version(args.databasename)
             print last_version
-main()
+
+if __name__ == "__main__":
+    main(sys.argv[1:])
