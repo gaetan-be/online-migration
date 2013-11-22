@@ -10,6 +10,7 @@ import glob
 import pickle
 import StringIO
 import logging
+import ConfigParser
 import argparse
 
 # New imports
@@ -22,13 +23,7 @@ from mysql.utilities.common.ip_parser import parse_connection
 from subprocess import call
 from contextlib import contextmanager
 
-server_host = '127.0.0.1'
-server_port = '5614'
-server_user = 'root'
-server_password = 'msandbox'
-
-server_connection = "%s:%s@%s:%s" % (server_user, server_password,
-                                     server_host, server_port)
+server_connection = ""
 
 logging.basicConfig(format = "%(levelname)s : %(message)s", level = logging.INFO)
 
@@ -662,9 +657,11 @@ class OnlineMigration(object):
 
 def main():
     
+    global server_connection
+    
     parser = argparse.ArgumentParser(description='Handles the versioning of database schemas')
     parser.add_argument('-i', '--ini', type=argparse.FileType('r'), help='the ini file for the database connection')
-    parser.add_argument('-d','--dsn', help='the DSN for the database connection')
+    parser.add_argument('-d','--dsn', help='the DSN for the database connection. Format user:passwd@host:port')
 
     cmdparsers = parser.add_subparsers(title='Valid commands',dest='command',help='Valid commands')
     
@@ -704,20 +701,28 @@ def main():
     parser_version= cmdparsers.add_parser('version', help='Shows this program\'s version number')
     
     args = parser.parse_args(sys.argv[1:])
-    
-    print args
-        
+    # print args
     with capture() as nowhere:
+        
+        if args.ini is None and args.dsn is None:
+            logging.error(u"An ini file or a dsn is required to connect to the database correctly.")
+            sys.exit(1)
+            
+        if args.ini is not None:
+            config = ConfigParser.ConfigParser()
+            config.read(args.ini.name)
+            server_connection = "%s:%s@%s:%s" % (config.get('MySQLServer','user'), config.get('MySQLServer','password'), config.get('MySQLServer','server'), config.get('MySQLServer','port'))
+
+        if args.dsn is not None:
+            server_connection = args.dsn
+        
         try:
-            migration = OnlineMigration(server.get_server(u'localhost', server_connection, False))
+            migration = OnlineMigration(server.get_server(u'online-migration', server_connection, False))
         except Exception, e:
             logging.error("%s" % e[0])
             sys.exit(1)
     
-    if args.ini is None and args.dsn is None:
-        logging.error(u"An ini file or a dsn is required to connect to the database correctly.")
-        sys.exit(1)
-
+    
     if args.command == 'init_sysdb':
         migration.init_sysdb()
     elif args.command == 'init':
