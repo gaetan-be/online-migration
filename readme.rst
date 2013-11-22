@@ -10,12 +10,12 @@ and Oracle MySQL utilities (http://dev.mysql.com/doc/workbench/en/mysql-utilitie
 Requirements:
 -------------
 
-* mysql-utilities (1.3.3)
-* mysql-connector-python
-* mysql client
-* pt-online-schema-change (optional)
-  * perl-DBI (dependency of pt-online-schema-change)
-  * perl-DBD-MySQL (dependency of pt-online-schema-chane)
+*  mysql-utilities (1.3.3)
+*  mysql-connector-python
+*  mysql client
+*  pt-online-schema-change (optional)
+* perl-DBI (dependency of pt-online-schema-change)
+* perl-DBD-MySQL (dependency of pt-online-schema-chane)
 
 
 Puppet:
@@ -33,36 +33,27 @@ A bug in pt-online-schema-change fails the example with the world database, see 
 
 Usage
 ------
-```
-usage: online-migration.py [-h] [-i INI] [-d DSN]
 
-                           {init_sysdb,init,create,status,checksum,up,down,last_version,diff,version}
-                           ...
+ | online-migration.py [-h] [-i INI] [-d DSN] <command>
 
-Handles the versioning of database schemas
+Optional arguments:
 
-optional arguments:
-  -h, --help            show this help message and exit
-  -i INI, --ini INI     the ini file for the database connection
-  -d DSN, --dsn DSN     the DSN for the database connection. Format
-                        user:passwd@host:port
+* **-h, --help** show this help message and exit
+* **-i, --ini** the ini file for the database connection
+* **-d, --dsn** the DSN for the database connection. Format user:passwd@host:port
 
 Valid commands:
-  {init_sysdb,init,create,status,checksum,up,down,last_version,diff,version}
-                        Valid commands
-    init_sysdb          Creates the online_migration sys schema in the
-                        database.
-    init                Initiate the first migration
-    create              Creates a migration
-    status              Display the status of the migration for all or one
-                        schema
-    checksum            Display checksum for a schema
-    up                  Upgrades a schema schema
-    down                Downgrades a schema
-    last_version        Prints the last migration version for this database.
-    diff                Prints the diff
-    version             Shows this program's version number
-```
+
+* **init_sysdb**          Creates the online_migration sys schema in the database.
+* **init**                Initiate the first migration
+* **create**              Creates a migration
+* **status**              Display the status of the migration for all or one schema
+* **checksum**            Display checksum for a schema
+* **up**                  Upgrades a schema schema
+* **down**                Downgrades a schema
+* **last_version**        Prints the last migration version for this database.
+* **diff**                Prints the diff
+* **version**             Shows this program's version number
 
 Copyrights:
 -----------
