@@ -14,8 +14,8 @@ Requirements:
 * mysql-connector-python
 * mysql client
 * pt-online-schema-change (optional)
-** perl-DBI (dependency of pt-online-schema-change)
-** perl-DBD-MySQL (dependency of pt-online-schema-chane)
+  * perl-DBI (dependency of pt-online-schema-change)
+  * perl-DBD-MySQL (dependency of pt-online-schema-chane)
 
 
 Puppet:
@@ -33,6 +33,7 @@ A bug in pt-online-schema-change fails the example with the world database, see 
 
 Usage
 ------
+```
 usage: online-migration.py [-h] [-i INI] [-d DSN]
 
                            {init_sysdb,init,create,status,checksum,up,down,last_version,diff,version}
@@ -61,6 +62,7 @@ Valid commands:
     last_version        Prints the last migration version for this database.
     diff                Prints the diff
     version             Shows this program's version number
+```
 
 Copyrights:
 -----------
