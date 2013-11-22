@@ -730,7 +730,7 @@ def main():
         migration.init_migration(args.databasename)
     elif args.command == 'create':
         migration.check_sys_init()
-        migration.create_migration(args.databasename, args.filename, args.comment)
+        migration.create_migration(args.databasename, args.filename.name, args.comment)
     elif args.command == 'status':
         migration.check_sys_init()
         migration.status(args.databasename)
