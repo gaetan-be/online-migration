@@ -46,19 +46,15 @@ class TestOnlineMigration(unittest.TestCase):
         with capture() as nowhere:
             logging.info("Setup")
                 
-            logging.info("CREATE TABLE `%s`.`test_table` (  `id` int(11) unsigned NOT NULL AUTO_INCREMENT,  `name` varchar(50) DEFAULT NULL,  PRIMARY KEY (`id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8" 
-                                   % TestOnlineMigration.TEST_DB_NAME)
-            shutil.rmtree(TestOnlineMigration.TEST_DB_NAME)
             try:
                migration = online_migration.OnlineMigration(server.get_server(u'online-migration', self.connection(), False))
+               # Drop test db, create test db, clean migration_sys, and create a test table
                migration.server.exec_query("DROP DATABASE IF EXISTS `%s`;" % TestOnlineMigration.TEST_DB_NAME);
                migration.server.exec_query("CREATE DATABASE `%s`;" % TestOnlineMigration.TEST_DB_NAME);
                migration.server.exec_query("DELETE FROM online_migration.`migration_sys` WHERE `db`='%s';" % TestOnlineMigration.TEST_DB_NAME);
-
-               migration.server.exec_query("DELETE FROM online_migration.`migration_sys` WHERE `db`='%s';" % TestOnlineMigration.TEST_DB_NAME);
-               migration.server.exec_query("CREATE TABLE `%s`.`test_table` (`id` int(11) unsigned NOT NULL AUTO_INCREMENT,`name` varchar(50) DEFAULT NULL,PRIMARY KEY (`id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8;" 
-                                   % TestOnlineMigration.TEST_DB_NAME);
-            
+               migration.server.exec_query("CREATE TABLE `%s`.`test_table` (`id` int(11) unsigned NOT NULL AUTO_INCREMENT,`name` varchar(50) DEFAULT NULL,PRIMARY KEY (`id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8;" % TestOnlineMigration.TEST_DB_NAME);
+               # Remove the migration files directory
+               shutil.rmtree(TestOnlineMigration.TEST_DB_NAME)
             except Exception, e:
                 logging.error(u"ERROR: %s !" % e)
                 sys.exit(1)
@@ -68,8 +64,10 @@ class TestOnlineMigration(unittest.TestCase):
         with capture() as nowhere:
             logging.info("tearDown")
             try:
+                # Drop test db, clean migration_sys
                 migration = online_migration.OnlineMigration(server.get_server(u'online-migration', self.connection(), False))
                 migration.server.exec_query("DROP DATABASE IF EXISTS `%s`;" % TestOnlineMigration.TEST_DB_NAME);
+                migration.server.exec_query("DELETE FROM online_migration.`migration_sys` WHERE `db`='%s';" % TestOnlineMigration.TEST_DB_NAME);
             except Exception, e:
                 logging.error(u"ERROR: %s !" % e)
             
