@@ -10,7 +10,7 @@ import glob
 import pickle
 import StringIO
 import logging
-
+import argparse
 
 # New imports
 from mysql.utilities.common import (database, options, server, table)
@@ -23,9 +23,9 @@ from subprocess import call
 from contextlib import contextmanager
 
 server_host = '127.0.0.1'
-server_port = '3306'
+server_port = '5614'
 server_user = 'root'
-server_password = ''
+server_password = 'msandbox'
 
 server_connection = "%s:%s@%s:%s" % (server_user, server_password,
                                      server_host, server_port)
@@ -180,11 +180,19 @@ class OnlineMigration(object):
                     file_down.close()
                 self.server.disable_foreign_key_checks(disable=False)
             else:
-                cmd = "pt-online-schema-change h=%s,P=%s,u=%s,p=%s,D=\"%s\",t=%s --alter=\"%s\" --execute >>online_migration.log 2>&1" % (server_host, server_port, server_user, server_password, db_name, line_list[0], line_list[1])
-                #print cmd
-                if call(cmd, shell=True) != 0:
-                    logging.error(u"Problem while running :\n   %s" % cmd )
-                    sys.exit(1)
+                if self.is_percona_toolkit_available is True:
+                    cmd = "pt-online-schema-change h=%s,P=%s,u=%s,p=%s,D=\"%s\",t=%s --alter=\"%s\" --execute >>online_migration.log 2>&1" % (server_host, server_port, server_user, server_password, db_name, line_list[0], line_list[1])
+                    #print cmd
+                    if call(cmd, shell=True) != 0:
+                        logging.error(u"Problem while running :\n   %s" % cmd )
+                        sys.exit(1)
+                else :
+                    logging.info("Percona toolkit not found, switching to classic SQL command.")
+                    query = "ALTER TABLE %s %s" % (line_list[0], line_list[1])
+                    print query
+                    self.server.exec_query("use %s" % db_name)
+                    self.server.exec_query(query);
+
         self.change_migration_status(db_name, version, 'ok')
 
     def write_stmt_up(self, table, alter_stmt, file):
@@ -262,8 +270,12 @@ class OnlineMigration(object):
         query = "SELECT max(version) FROM %s WHERE status <> 'rollback' AND `db` = \"%s\";" % (self.migration_table, db_name)
         res = self.server.exec_query(query)
         if res is None:
-            logging.error(u"There is no migration initilized for database %s !" % db_name)
+            logging.error(u"There is no migration initialized for database %s !" % db_name)
             sys.exit(1)
+        else:
+            if res[0][0] is None:
+                logging.error(u"There is no migration initialized for database %s !" % db_name)
+                sys.exit(1)
         return (res[0][0])
 
     def add_up_in_db(self, db_name, version):
@@ -565,7 +577,21 @@ class OnlineMigration(object):
         logging.info(u"rollback from %04d to %04d" % (int(last_version), int(last_version) - 1))
         self.online_schema_change(db_name, last_version, "%s/%04d-down.mig" % (db_name, int(last_version)), 'down')
         self.change_migration_status(db_name, last_version, 'rollback')
-
+    
+    def is_percona_toolkit_available(self):
+        fpath, fname = os.path.split("pt-online-schema-change")
+        if fpath:
+            if os.path.isfile("pt-online-schema-change") and os.access("pt-online-schema-change", os.X_OK):
+                return True
+            else:
+                for path in os.environ["PATH"].split(os.pathsep):
+                    path = path.strip('"')
+                    exe_file = os.path.join(path, "pt-online-schema-change")
+                    if os.path.isfile(exe_file) and os.access(exe_file, os.X_OK):
+                        return True
+        return False
+        
+    
     def migrate_up(self, db_name, last_version):
         (ver, md5, comment) = self.read_meta(db_name, int(last_version))
         if self.verify_checksum(db_name, last_version, md5) is False:
@@ -632,131 +658,172 @@ class OnlineMigration(object):
             os.remove(file_down_tmp)
             file_schema = "%s/%04d-schema.img" % (db_name, int(version))
             self.create_schema_img(db_name, file_schema)
-
+  
 
 def main():
-    if len(sys.argv) < 2:
-        logging.error("A command is needed\ncommands are: init, create, status, checksum, down, up, diff, version")
+    
+    parser = argparse.ArgumentParser(description='Handles the versioning of database schemas')
+    parser.add_argument('-i', '--ini', type=argparse.FileType('r'), help='the ini file for the database connection')
+    parser.add_argument('-d','--dsn', help='the DSN for the database connection')
+
+    cmdparsers = parser.add_subparsers(title='Valid commands',dest='command',help='Valid commands')
+    
+    parser_init_sysdb = cmdparsers.add_parser('init_sysdb', help='Creates the online_migration sys schema in the database.')
+
+    parser_init = cmdparsers.add_parser('init', help='Initiate the first migration')
+    parser_init.add_argument('databasename', help='The database name.')
+    
+    parser_create = cmdparsers.add_parser('create', help='Creates a migration')
+    parser_create.add_argument('databasename', help='The database name.')
+    parser_create.add_argument('filename', type=argparse.FileType('r'), help='The file containing the migration statements.')
+    parser_create.add_argument('comment', nargs='?', default="none", help='The comment for this migration.')
+    
+    parser_status = cmdparsers.add_parser('status', help='Display the status of the migration for all or one schema')
+    parser_status.add_argument('databasename', nargs='?', help='The database name.')
+    
+    parser_checksum = cmdparsers.add_parser('checksum', help='Display checksum for a schema')
+    parser_checksum.add_argument('databasename', help='The database name.')
+    
+    parser_up = cmdparsers.add_parser('up', help='Upgrades a schema schema')
+    parser_up.add_argument('databasename', help='The database name.')
+    parser_up.add_argument('versionsup', type=int, nargs="?",help='Number of versions to upgrade. Defaults to 1', default='1')
+    parser_up.add_argument('-t','--to', type=int, help='The end version of the upgrades')
+    
+    parser_down = cmdparsers.add_parser('down', help='Downgrades a schema')
+    
+    parser_down.add_argument('databasename', help='The database name.')
+    parser_down.add_argument('versionsdown', nargs="?", type=int, help='Number of versions to downgrade. Defaults to 1', default='1')
+    parser_down.add_argument('-t','--to', type=int,help='The end version of the downgrade')
+    
+    parser_last_version = cmdparsers.add_parser('last_version', help='Prints the last migration version for this database.')
+    parser_last_version.add_argument('databasename', help='The database name.')
+      
+    parser_diff = cmdparsers.add_parser('diff', help='Prints the diff')
+    parser_diff.add_argument('databasename', help='The database name.')
+        
+    parser_version= cmdparsers.add_parser('version', help='Shows this program\'s version number')
+    
+    args = parser.parse_args(sys.argv[1:])
+    
+    print args
+        
+    with capture() as nowhere:
+        try:
+            migration = OnlineMigration(server.get_server(u'localhost', server_connection, False))
+        except Exception, e:
+            logging.error("%s" % e[0])
+            sys.exit(1)
+    
+    if args.ini is None and args.dsn is None:
+        logging.error(u"An ini file or a dsn is required to connect to the database correctly.")
         sys.exit(1)
-    else:
-        with capture() as nowhere:
-            try:
-            	migration = OnlineMigration(
-                	server.get_server(u'localhost', server_connection, False))
-            except Exception, e:
-                logging.error("%s" % e[0])
+
+    if args.command == 'init_sysdb':
+        migration.init_sysdb()
+    elif args.command == 'init':
+        migration.check_sys_init()
+        migration.init_migration(args.databasename)
+    elif args.command == 'create':
+        migration.check_sys_init()
+        migration.create_migration(args.databasename, args.filename, args.comment)
+    elif args.command == 'status':
+        migration.check_sys_init()
+        migration.status(args.databasename)
+    elif args.command == 'checksum':
+        migration.check_sys_init()
+        checksum = migration.create_checksum(args.databasename, "0")
+        print "%s's current schema checksum = %s" % (args.databasename, checksum)
+    elif args.command == 'down':
+        migration.check_sys_init()
+        db_name = (args.databasename)
+        last_version = migration.last_migration_version(args.databasename)
+        
+        if args.to is not None and args.versionsdown >= 0:
+            logging.error(u"Conflicting arguments. You cannot specify the number of version to go down with the --to switch.")
+            sys.exit(1)
+        
+        if args.to is not None:
+            # calculate number of versions to go down to.
+            if args.to >= last_version:
+                logging.error(u"Last version is %04d and you asked to go down to %04d." % (int(last_version), int(args.to)))
                 sys.exit(1)
-	
-        if sys.argv[1] == 'init_sysdb':
-            migration.init_sysdb()
-        elif sys.argv[1] == 'init':
-            migration.check_arg()
-            migration.check_sys_init()
-            migration.init_migration(sys.argv[2])
-        elif sys.argv[1] == 'create':
-            migration.check_arg(2)
-            migration.check_sys_init()
-            if len(sys.argv) > 4:
-                comment = sys.argv[4]
             else:
-                comment = "none"
-            migration.create_migration(sys.argv[2], sys.argv[3], comment)
-        elif sys.argv[1] == 'status':
-            migration.check_arg(0)
-            migration.check_sys_init()
-            if len(sys.argv) == 3:
-                db_name = (sys.argv[2])
-            else:
-                db_name = None
-            migration.status(db_name)
-        elif sys.argv[1] == 'checksum':
-            migration.check_arg(1)
-            migration.check_sys_init()
-            db_name = (sys.argv[2])
-            checksum = migration.create_checksum(db_name, "0")
-            print "%s's current schema checksum = %s" % (db_name, checksum)
-        elif sys.argv[1] == 'down':
-            migration.check_arg(1)
-            migration.check_sys_init()
-            db_name = (sys.argv[2])
-            last_version = migration.last_migration_version(db_name)
-            if len(sys.argv) == 4 and re.search("\d", sys.argv[3]):
-                logging.info(u"You want to migrate down %d version(s)" % int(sys.argv[3]))
-                tot = 0
-                tot_app = migration.applied_migration(db_name)
-                if tot_app >= int(sys.argv[3]):
-                    while tot < int(sys.argv[3]):
-                        last_version = migration.last_migration_version(db_name)
+                logging.info(u"You want to migrate down to version %04d" % int(args.to))
+                if migration.check_version_applied(db_name, int(args.to)):
+                    args.versionsdown = last_version - args.to
+                else:
+                    logging.error(u"ERROR: Version %04d was never applied." % (int(args.to)))
+                    sys.exit(1)
+                    
+        if re.search("\d", args.versionsdown) and int(args.versionsdown) > 0:
+            logging.info(u"You want to migrate down %d version(s)" % int(args.versionsdown))
+            tot = 0
+            tot_app = migration.applied_migration(db_name)
+            if tot_app >= int(args.versionsdown):
+                while tot < int(args.versionsdown):
+                    last_version = migration.last_migration_version(db_name)
+                    if last_version is not None and int(last_version) > 0:
                         migration.migrate_down(db_name, last_version)
                         tot += 1
-                else:
-                    logging.error(u"Only %d applied migration(s) available !" % tot_app)
-                    sys.exit(1)
-            elif len(sys.argv) == 5:
-                if sys.argv[3] == 'to' and re.search("\d", sys.argv[4]):
-                    logging.info(u"You want to migrate down to version %04d" % int(sys.argv[4]))
-                    if migration.check_version_applied(db_name, int(sys.argv[4])):
-                        logging.info("Ok this version was applied")
-                        while int(last_version) > int(sys.argv[4]):
-                            migration.migrate_down(db_name, last_version)
-                            last_version = migration.last_migration_version(db_name)
-            else:
-                if last_version is not None and int(last_version) > 0:
-                    migration.migrate_down(db_name, last_version)
-                else:
-                    logging.error("Impossible to rollback as nothing was migrated yet !")
-                    sys.exit(1)
-        elif sys.argv[1] == 'up':
-            migration.check_arg(1)
-            migration.check_sys_init()
-            db_name = (sys.argv[2])
-            last_version = migration.last_migration_version(db_name)
-            if last_version is None and len(sys.argv) > 3:
-                logging.error("You can only migrate multiple versions when at least one has been already performed")
-                sys.exit(1)
-             
-            if len(sys.argv) == 4 and re.search("\d", sys.argv[3]):
-                logging.info(u"You want to migrate up %d version(s)" % int(sys.argv[3]))
-                tot = 0
-                tot_pend = migration.pending_migration(db_name, last_version)
-                if tot_pend >= int(sys.argv[3]):
-                    while tot < int(sys.argv[3]):
-                        last_version = migration.last_migration_version(db_name)
-                        migration.migrate_up(db_name, last_version)
-                        tot += 1
-                else:
-                    logging.error(u"Only %d pending migration(s) available !" % tot_pend)
-                    sys.exit(1)
-            elif len(sys.argv) == 5:
-                if sys.argv[3] == 'to' and re.search("\d", sys.argv[4]):
-                    logging.info(u"You want to migrate up to version %04d" % int(sys.argv[4]))
-                    if migration.check_version_pending(db_name, int(sys.argv[4])):
-                        logging.info("Ok this version is pending")
-                        while int(last_version) < int(sys.argv[4]):
-                            migration.migrate_up(db_name, last_version)
-                            last_version = migration.last_migration_version(db_name)
-		    else:
-                        logging.error(u"This version (%04d) is not available as a pending migration !" % int(sys.argv[4]))
+                    else:
+                        logging.error("Impossible to rollback as nothing was migrated yet !")
                         sys.exit(1)
             else:
-                if last_version is not None:
-                    migration.migrate_up(db_name, last_version)
-                else:
-                    migration.mysql_create_schema(db_name, "%s/0000-up.mig" % db_name)
-        elif sys.argv[1] == 'diff':
-            migration.check_arg(1)
-            migration.check_sys_init()
-            db_name = (sys.argv[2])
-            migration.print_diff(db_name)
-        elif sys.argv[1] == 'version':
-	    print "online-migration.py %s" % version
-	elif sys.argv[1] == 'last_version':
-            migration.check_arg(1)
-            if migration.check_sys_init(0) == 1:
-	       	print -1
+                logging.error(u"Only %d applied migration(s) available !" % tot_app)
+                sys.exit(1)
+    elif args.command == 'up':
+        migration.check_sys_init()
+        db_name = (args.databasename)
+        last_version = migration.last_migration_version(db_name)
+        
+        if args.to is not None and args.versionsup >= 0:
+            logging.error(u"Conflicting arguments. You cannot specify the number of version to go up with the --to switch.")
+            sys.exit(1)
+                    
+        if last_version is None:
+            migration.mysql_create_schema(db_name, "%s/0000-up.mig" % db_name)
+         
+        if args.to is not None:
+            # calculate number of versions to go up to.
+            if args.to <= last_version:
+                logging.error(u"Last version is %04d and you asked to go up to %04d." % (int(last_version), int(args.to)))
+                sys.exit(1)
             else:
-            	db_name = (sys.argv[2])
-            	last_version = migration.last_migration_version(db_name)
-	    	print last_version
-
+                logging.info(u"You want to migrate up to version %04d" % int(args.to))
+                if migration.check_version_pending(db_name, int(args.to)):
+                    logging.error(u"ERROR: Version %04d is already applied." % (int(args.to)))
+                    sys.exit(1)
+                else:
+                     args.versionsup = args.to - last_version
+        
+        
+        if re.search("\d", args.versionsup):
+            if last_version is None and args.versionsup > 1:
+                logging.error("You can only migrate multiple versions when at least one has been already performed")
+                sys.exit(1)             
+        
+            logging.info(u"You want to migrate up %d version(s)" % int(args.versionsup))
+            tot = 0
+            tot_pend = migration.pending_migration(db_name, last_version)
+            if tot_pend >= int(args.versionsup):
+                while tot < int(args.versionsup):
+                    last_version = migration.last_migration_version(db_name)
+                    migration.migrate_up(db_name, last_version)
+                    tot += 1
+            else:
+                logging.error(u"Only %d pending migration(s) available !" % tot_pend)
+                sys.exit(1)
+        
+    elif args.command  == 'diff':
+        migration.check_sys_init()
+        db_name = (args.databasename)
+        migration.print_diff(db_name)
+    elif args.command  == 'version':
+        print "online-migration.py %s" % version
+    elif args.command == 'last_version':
+        if migration.check_sys_init(0) == 1:
+            print -1
+        else:
+            last_version = migration.last_migration_version(args.databasename)
+            print last_version
 main()

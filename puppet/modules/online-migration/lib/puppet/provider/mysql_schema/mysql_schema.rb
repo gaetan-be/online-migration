@@ -16,9 +16,9 @@ Puppet::Type.type(:mysql_schema).provide(:mysql_schema) do
           last_version.chomp!
        end
        if last_version > resource[:version]
-          omcmd "down", resource[:schema], "to", resource[:version]
+          omcmd "down", resource[:schema], "--to", resource[:version]
        elsif last_version < resource[:version]	  
-          omcmd "up", resource[:schema], "to", resource[:version]
+          omcmd "up", resource[:schema], "--to", resource[:version]
        end
        return true
    end
